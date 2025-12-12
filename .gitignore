@@ -1,0 +1,18 @@
+# Environment variables (contains passwords)
+.env
+
+# Docker volumes
+mysql_data/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

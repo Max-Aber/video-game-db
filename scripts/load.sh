@@ -2,12 +2,15 @@
 
 # ==============================================================================
 # MySQL Database Loader
-# Usage: ./load.sh
+# Usage: ./load.sh [port]
+# Example: ./load.sh       (uses port 3306 - local MySQL)
+#          ./load.sh 3307  (uses port 3307 - Docker MySQL)
 # ==============================================================================
 
 DB_USER="root"
 DB_NAME="video_game_store"
 SQL_DIR="../sql"
+DB_PORT="${1:-3306}"  # Use first argument, default to 3306
 
 # 1. Capture Password Once (Hidden Input)
 echo "-------------------------------------------------"
@@ -23,7 +26,7 @@ run_sql() {
     echo "Processing $file..."
     
     # We add -v (verbose) to see output, and --force to not stop on warnings
-    mysql -u "$DB_USER" --database="$DB_NAME" < "$SQL_DIR/$file"
+    mysql -u "$DB_USER" --port="$DB_PORT" --database="$DB_NAME" < "$SQL_DIR/$file"
     
     if [ $? -ne 0 ]; then
         echo "❌ Error processing $file. Stopping."
@@ -40,7 +43,7 @@ run_sql() {
 echo "-------------------------------------------------"
 echo "  Step 1: Rebuilding Schema (DDL)"
 echo "-------------------------------------------------"
-mysql -u "$DB_USER" < "$SQL_DIR/01_schema.sql" 2>&1
+mysql -u "$DB_USER" --port="$DB_PORT" < "$SQL_DIR/01_schema.sql" 2>&1
 if [ $? -ne 0 ]; then
     echo "❌ Schema build failed. Check your SQL syntax or connection."
     unset MYSQL_PWD
@@ -77,7 +80,7 @@ echo "-------------------------------------------------"
 
 # We run this manually (instead of using run_sql) so we can add the --force flag.
 # --force tells MySQL to keep running even if a test case triggers an error.
-mysql -u "$DB_USER" --database="$DB_NAME" --force < "$SQL_DIR/08_transactions.sql"
+mysql -u "$DB_USER" --port="$DB_PORT" --database="$DB_NAME" --force < "$SQL_DIR/08_transactions.sql"
 
 echo "================================================="
 echo "🎉 BUILD COMPLETE. Database is ready."
