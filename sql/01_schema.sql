@@ -173,7 +173,7 @@ CREATE TABLE Customer (
     last_name VARCHAR(50) NOT NULL,
     email VARCHAR(100) NOT NULL,
     phone_number VARCHAR(20),
-    join_date DATE NOT NULL DEFAULT CURDATE(),
+    join_date DATE NOT NULL DEFAULT (CURRENT_DATE),
     total_points INT NOT NULL DEFAULT 0,
     
     -- Constraints

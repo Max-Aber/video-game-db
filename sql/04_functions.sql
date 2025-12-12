@@ -2,6 +2,7 @@ USE video_game_store;
 
 -- 1. Function: get_customer_loyalty_level
 -- Purpose: Returns a text label ('Bronze', 'Silver', 'Gold') based on points.
+DELIMITER //
 DROP FUNCTION IF EXISTS get_customer_loyalty_level;
 
 CREATE FUNCTION get_customer_loyalty_level(current_points INT) 
@@ -19,12 +20,13 @@ BEGIN
     END IF;
 
     RETURN level_label;
-END;
+END //
+DELIMITER ;
 
 -- 2. Stored Procedure: sp_process_restock
 -- Purpose: Handles inventory updates or inserts new inventory records safely.
 DROP PROCEDURE IF EXISTS sp_process_restock;
-
+DELIMITER //
 CREATE PROCEDURE sp_process_restock(
     IN p_store_id INT,
     IN p_product_id INT,
@@ -49,12 +51,13 @@ BEGIN
             5 
         FROM Product WHERE product_id = p_product_id;
     END IF;
-END;
+END //
+DELIMITER ;
 
 -- 3. Stored Procedure: sp_apply_category_discount
 -- Purpose: Applies a percentage discount to a specific category at a specific store.
 DROP PROCEDURE IF EXISTS sp_apply_category_discount;
-
+DELIMITER //
 CREATE PROCEDURE sp_apply_category_discount(
     IN p_store_id INT,
     IN p_category_name VARCHAR(50),
@@ -67,4 +70,6 @@ BEGIN
     SET i.current_price = i.current_price * (1 - p_discount_percentage)
     WHERE i.store_id = p_store_id 
     AND c.name = p_category_name;
-END;
+END //
+
+DELIMITER ;

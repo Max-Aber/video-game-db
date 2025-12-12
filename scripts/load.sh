@@ -34,7 +34,6 @@ run_sql() {
 # ==============================================================================
 # EXECUTION ORDER
 # ==============================================================================
-
 # Step 1: Schema (DDL)
 # We run this WITHOUT selecting a DB first, because 01_schema.sql usually 
 # contains the "CREATE DATABASE" and "USE" commands.
@@ -71,8 +70,14 @@ run_sql "06_indexes.sql" "Step 6: Optimizing Performance"
 # ==============================================================================
 
 # Step 7: Run Transaction Tests (ACID checks)
-# We run this to ensure the database isn't just "built", but functionally sound.
-run_sql "08_transactions.sql" "Step 7: Running Transaction Test Suite"
+echo "-------------------------------------------------"
+echo "  Step 7: Running Transaction Test Suite"
+echo "  (Note: You WILL see expected error messages below. This is normal!)"
+echo "-------------------------------------------------"
+
+# We run this manually (instead of using run_sql) so we can add the --force flag.
+# --force tells MySQL to keep running even if a test case triggers an error.
+mysql -u "$DB_USER" --database="$DB_NAME" --force < "$SQL_DIR/08_transactions.sql"
 
 echo "================================================="
 echo "🎉 BUILD COMPLETE. Database is ready."
