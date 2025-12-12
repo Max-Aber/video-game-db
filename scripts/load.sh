@@ -40,7 +40,7 @@ run_sql() {
 echo "-------------------------------------------------"
 echo "  Step 1: Rebuilding Schema (DDL)"
 echo "-------------------------------------------------"
-mysql -u "$DB_USER" < "$SQL_DIR/01_schema.sql"
+mysql -u "$DB_USER" < "$SQL_DIR/01_schema.sql" 2>&1
 if [ $? -ne 0 ]; then
     echo "❌ Schema build failed. Check your SQL syntax or connection."
     unset MYSQL_PWD
