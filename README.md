@@ -61,7 +61,7 @@ Wait 10-20 seconds for MySQL to initialize.
 
 ```bash
 cd scripts
-./load.sh 3307
+./load.sh --docker
 ```
 
 When prompted, enter the password from your `.env` file.
@@ -104,7 +104,7 @@ cd path/to/video-game-db
 
 ```bash
 cd scripts
-./load.sh
+./load.sh --local
 ```
 
 When prompted, enter your MySQL root password.
@@ -125,7 +125,7 @@ If you see an error like `'.' is not recognized...` when running `./load.sh`:
 
 1. Install Git from: https://git-scm.com/downloads
 2. Right-click in your project folder → "Git Bash Here"
-3. Run: `./load.sh` or `./load.sh 3307`
+3. Run: `./load.sh --docker` (or `./load.sh --local` for local MySQL)
 
 **Alternative: Use WSL (Windows Subsystem for Linux)**
 
@@ -184,14 +184,14 @@ docker-compose up -d
 docker-compose down -v
 docker-compose up -d
 cd scripts
-./load.sh 3307
+./load.sh --docker
 ```
 
 ### Wipe Database & Start Fresh (Local MySQL)
 
 ```bash
 cd scripts
-./load.sh
+./load.sh --local
 ```
 
 The script automatically drops and recreates the database.
@@ -232,7 +232,7 @@ mysql -u root -p video_game_store
 # 2. Run these commands:
 docker-compose up -d
 cd scripts
-./load.sh 3307
+./load.sh --docker
 # Enter password: video-game-lover123
 ```
 
@@ -255,7 +255,8 @@ mysql -u root -p -h localhost --port=3307 -e "USE video_game_store; SELECT COUNT
 ### "Port 3306 already in use"
 
 - Your local MySQL is running on port 3306
-- Use Docker on port 3307: `./load.sh 3307`
+- Use Docker mode instead: `./load.sh --docker`
+- Or use local mode on a different port: `./load.sh --local 3307`
 - Or stop local MySQL: Windows Services → MySQL80 → Stop
 
 ### "Access denied for user 'root'"
