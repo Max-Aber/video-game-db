@@ -187,6 +187,9 @@ CREATE TABLE Customer (
     INDEX idx_customer_points (total_points)
 ) ENGINE=InnoDB;
 
+ALTER TABLE Customer
+ADD COLUMN loyalty_tier VARCHAR(20) NOT NULL DEFAULT 'Bronze';
+
 -- =====================================================
 -- 8. PURCHASE TABLE
 -- =====================================================
@@ -379,6 +382,24 @@ CREATE TABLE Review (
     INDEX idx_review_customer (customer_id),
     INDEX idx_review_rating (rating)
 ) ENGINE=InnoDB;
+
+-- =====================================================
+-- 13. AUDITLOG TABLE
+--      Logs changes to sensitive tables (Purchase, Inventory)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS AuditLog (
+    audit_log_id INT AUTO_INCREMENT PRIMARY KEY,
+    table_name VARCHAR(50) NOT NULL,
+    operation ENUM('INSERT', 'UPDATE', 'DELETE') NOT NULL,
+    primary_key_value VARCHAR(100) NOT NULL,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    changed_by VARCHAR(100) DEFAULT NULL,
+    old_values JSON,
+    new_values JSON
+) ENGINE=InnoDB;
+
+
+
 
 -- =====================================================
 -- END OF SCHEMA

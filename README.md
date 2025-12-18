@@ -298,7 +298,7 @@ mysql -u root -p --port=3307 video_game_store < sql/07_queries.sql
 ### Testing Transactions
 
 ```bash
-mysql -u root -p --port=3307 video_game_store < sql/08_transactions.sql
+mysql -u root -p --port=3307 --force video_game_store < sql/08_transactions.sql
 ```
 
 ### Analyzing Query Performance

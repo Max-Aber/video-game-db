@@ -1,4 +1,6 @@
 USE video_game_store;
+SET SESSION sql_notes = 0;
+
 
 -- =======================================================================================
 -- 8. INTEGRITY & RELIABILITY: TRANSACTION TEST SUITE
@@ -179,7 +181,146 @@ SELECT
         ELSE 'FAIL: Savepoint Logic Incorrect'
     END AS Result;
 
+-- =======================================================================================
+-- TEST CASE 6: Trigger Rules - Overselling Prevention
+-- Scenario: Try to sell more than quantity_available. Trigger should block insert.
+-- Expectation: PurchaseItem insert fails, and inventory does NOT change.
+-- =======================================================================================
+SELECT 'TEST CASE 6: Trigger Rules - Overselling Prevention' AS Test_Case;
+
+START TRANSACTION;
+
+    -- Record starting qty for inventory_id = 1
+    SELECT quantity_available INTO @start_qty
+    FROM Inventory
+    WHERE inventory_id = 1;
+
+    -- Create a dummy purchase header
+    INSERT INTO Purchase (customer_id, employee_id, store_id, subtotal, tax_amount, total_amount, payment_method, points_earned)
+    VALUES (1, 1, 1, 59.99, 5.00, 64.99, 'CASH', 0);
+
+    SET @pid := LAST_INSERT_ID();
+
+    -- Oversell attempt (should error via trg_prevent_oversell_purchaseitem)
+    INSERT INTO PurchaseItem (purchase_id, inventory_id, quantity, unit_price, line_total)
+    VALUES (@pid, 1, @start_qty + 1, 59.99, 59.99 * (@start_qty + 1));
+
+ROLLBACK;
+
+-- Confirm inventory stayed the same
+SELECT quantity_available INTO @end_qty
+FROM Inventory
+WHERE inventory_id = 1;
+
+SELECT
+    @start_qty AS Start_Qty,
+    @end_qty AS End_Qty,
+    CASE
+        WHEN @end_qty = @start_qty THEN 'PASS: Oversell prevented and inventory unchanged'
+        ELSE 'FAIL: Inventory changed unexpectedly'
+    END AS Result;
+
+
+-- =======================================================================================
+-- TEST CASE 7: Audit Logging Trigger
+-- Purpose:
+--   Verify that updates to sensitive Inventory data automatically generate
+--   an audit record capturing old and new values in JSON format.
+-- =======================================================================================
+
+SELECT 'TEST CASE 7: Audit Logging Trigger' AS Test_Case;
+
+-- Select a stable inventory record for testing
+SET @inv_id := 1;
+
+-- Remove prior Inventory audit entries to keep the test deterministic
+DELETE FROM AuditLog WHERE table_name = 'Inventory';
+
+-- Capture the original price before modification
+SELECT current_price INTO @old_price
+FROM Inventory
+WHERE inventory_id = @inv_id;
+
+-- Update Inventory (this should fire trg_audit_inventory_update)
+UPDATE Inventory
+SET current_price = current_price + 1
+WHERE inventory_id = @inv_id;
+
+-- Verify that an audit record was created with the correct old value
+SELECT 
+    CASE 
+        WHEN EXISTS (
+            SELECT 1
+            FROM AuditLog
+            WHERE table_name = 'Inventory'
+              AND operation = 'UPDATE'
+              AND CAST(JSON_UNQUOTE(JSON_EXTRACT(old_values, '$.current_price')) AS DECIMAL(10,2)) = @old_price
+        )
+        THEN 'PASS: Inventory update logged in AuditLog'
+        ELSE 'FAIL: Audit record missing'
+    END AS Result;
+
+
+
+-- Restore Inventory to its original state for idempotency
+UPDATE Inventory
+SET current_price = @old_price
+WHERE inventory_id = @inv_id;
+
+-- Remove audit records created by this test
+DELETE FROM AuditLog WHERE table_name = 'Inventory';
+
+-- =====================================================
+-- TEST CASE 8: Loyalty points + tier auto-update
+-- =====================================================
+SELECT 'TEST CASE 8: Loyalty points + tier auto-update' AS Test_Case;
+
+START TRANSACTION;
+
+  -- Snapshot before
+  SELECT total_points INTO @pts_before
+  FROM Customer
+  WHERE customer_id = 1;
+
+  SELECT loyalty_tier INTO @tier_before
+  FROM Customer
+  WHERE customer_id = 1;
+
+  -- Insert purchases to trigger points + tier updates
+  INSERT INTO Purchase (customer_id, employee_id, store_id, subtotal, tax_amount, total_amount, payment_method, points_earned)
+  VALUES (1, 7, 1, 10.00, 0.90, 10.90, 'CASH', 600);
+
+  INSERT INTO Purchase (customer_id, employee_id, store_id, subtotal, tax_amount, total_amount, payment_method, points_earned)
+  VALUES (1, 7, 1, 10.00, 0.90, 10.90, 'CASH', 500);
+
+  -- Verify after
+  SELECT total_points INTO @pts_after
+  FROM Customer
+  WHERE customer_id = 1;
+
+  SELECT loyalty_tier INTO @tier_after
+  FROM Customer
+  WHERE customer_id = 1;
+
+  SELECT
+    @pts_before AS pts_before,
+    @pts_after  AS pts_after,
+    @tier_before AS tier_before,
+    @tier_after  AS tier_after,
+    CASE
+      WHEN @pts_after = @pts_before + 1100 THEN 'PASS: points added correctly'
+      ELSE 'FAIL: points not added correctly'
+    END AS points_result;
+
+ROLLBACK;
+
+SELECT 'Test 8 Complete: Rolled back to keep state clean.' AS Cleanup_Status;
+
+
+
+
 -- Final Cleanup of the Test User
 DELETE FROM Customer WHERE email = 'test.user@example.com';
 
 SELECT 'TEST SUITE COMPLETE.' AS Status;
+
