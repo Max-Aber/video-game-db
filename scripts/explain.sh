@@ -127,7 +127,26 @@ run_explain_case() {
 }
 
 print_header "Query Performance Analysis with EXPLAIN"
-print_info "Database: $DB_NAME"
+
+echo ""
+print_info "PURPOSE:"
+echo "  This script demonstrates the impact of indexes on query performance"
+echo "  by running EXPLAIN on various queries with and without indexes."
+echo ""
+print_info "WHAT IT DOES:"
+echo "  1. Analyzes complex queries from the video game store database"
+echo "  2. Shows EXPLAIN output before and after adding indexes"
+echo "  3. Compares performance metrics (type, rows examined, key usage)"
+echo "  4. Displays index inventory for all tables"
+echo "  5. Provides recommendations for query optimization"
+echo ""
+print_info "Database: $DB_NAME @ $DB_HOST:$DB_PORT"
+if [[ "$USE_DOCKER" == true ]]; then
+  print_info "Mode: Docker (container: $CONTAINER_NAME)"
+else
+  print_info "Mode: Local MySQL"
+fi
+echo ""
 print_info "Mode: $([[ "$USE_DOCKER" == true ]] && echo Docker || echo Local)"
 echo ""
 
