@@ -126,6 +126,38 @@ run_explain_case() {
   echo ""
 }
 
+# ----------------------------
+# Query + IGNORE INDEX runner (for queries with pre-existing indexes)
+# ----------------------------
+run_explain_case_ignore() {
+  local title="$1"
+  local desc="$2"
+  local sql_without="$3"  # Query WITH IGNORE INDEX
+  local sql_with="$4"     # Query WITHOUT IGNORE INDEX (normal)
+
+  echo ""
+  print_header "$title"
+  print_info "$desc"
+  
+  print_subheader "Query (Forced No Index via IGNORE INDEX)"
+  echo "$sql_without"
+  echo ""
+  
+  print_subheader "EXPLAIN (Without Index)"
+  print_info "Using IGNORE INDEX to force table scan"
+  mysql_exec_vertical "EXPLAIN $sql_without"
+  echo ""
+
+  print_subheader "Query (With Index - Normal Optimizer)"
+  echo "$sql_with"
+  echo ""
+  
+  print_subheader "EXPLAIN (With Index)"
+  print_info "Optimizer free to choose best index"
+  mysql_exec_vertical "EXPLAIN $sql_with"
+  echo ""
+}
+
 print_header "Query Performance Analysis with EXPLAIN"
 
 echo ""
@@ -177,57 +209,48 @@ run_explain_case \
   "CREATE INDEX idx_product_platform ON Product(platform);"
 
 # 2) Inventory Check Across Stores
-# Note: your schema already has idx_inventory_store + idx_inventory_product.
-# This query benefits most from inventory(product_id, store_id) style access;
-# we demonstrate by toggling idx_inventory_product (simple + safe).
-run_explain_case \
+run_explain_case_ignore \
   "Inventory Check Across Stores" \
   "Find stores that have a specific product in stock" \
   "SELECT s.store_name, s.city, i.quantity_available
    FROM Store s
-   JOIN Inventory i ON s.store_id = i.store_id
-   WHERE i.product_id = (
-     SELECT product_id FROM Product WHERE name = 'The Last of Us Part II' LIMIT 1
-   )
-   AND i.quantity_available > 0
+   JOIN Inventory i IGNORE INDEX (idx_inventory_product, uk_inventory_store_product, idx_inventory_low_stock, idx_inventory_range)
+     ON s.store_id = i.store_id
+   WHERE i.product_id = (SELECT product_id FROM Product WHERE name = 'Super Mario Odyssey' LIMIT 1)
+     AND i.quantity_available > 0
    ORDER BY i.quantity_available DESC;" \
-  "DROP INDEX idx_inventory_product ON Inventory;" \
-  "CREATE INDEX idx_inventory_product ON Inventory(product_id);"
+  "SELECT s.store_name, s.city, i.quantity_available
+   FROM Store s
+   JOIN Inventory i ON s.store_id = i.store_id
+   WHERE i.product_id = (SELECT product_id FROM Product WHERE name = 'Super Mario Odyssey' LIMIT 1)
+     AND i.quantity_available > 0
+   ORDER BY i.quantity_available DESC;"
 
-# 3) Best Sellers Report
+# 3) Purchase Line Items Report
 run_explain_case \
-  "Best Sellers Report" \
-  "Top-selling products by revenue" \
-  "SELECT p.name AS product_name,
-          SUM(pi.quantity * pi.unit_price) AS total_revenue,
-          SUM(pi.quantity) AS units_sold
-   FROM PurchaseItem pi
-   JOIN Inventory i ON pi.inventory_id = i.inventory_id
-   JOIN Product p ON i.product_id = p.product_id
-   GROUP BY p.product_id, p.name
-   ORDER BY total_revenue DESC
+  "Purchase Line Items Report" \
+  "Retrieve purchase details for specific inventory range" \
+  "SELECT purchase_id, inventory_id, quantity, unit_price
+   FROM PurchaseItem
+   WHERE inventory_id BETWEEN 10 AND 50
+   ORDER BY inventory_id;" \
+  "DROP INDEX idx_purchaseitem_covering ON PurchaseItem;" \
+  "CREATE INDEX idx_purchaseitem_covering ON PurchaseItem(inventory_id, purchase_id, quantity, unit_price);"
+
+# 4) Customer Purchase History
+run_explain_case \
+  "Customer Purchase History" \
+  "View recent orders for a specific customer" \
+  "SELECT purchase_id, customer_id, purchase_date, total_amount
+   FROM Purchase
+   WHERE customer_id = 5
+   ORDER BY purchase_date DESC
    LIMIT 10;" \
-  "DROP INDEX idx_purchaseitem_inventory ON PurchaseItem;" \
-  "CREATE INDEX idx_purchaseitem_inventory ON PurchaseItem(inventory_id);"
-
-# 4) Customer Lifetime Value
-run_explain_case \
-  "Customer Lifetime Value" \
-  "Top customers by total spending" \
-  "SELECT c.customer_id,
-          CONCAT(c.first_name, ' ', c.last_name) AS customer_name,
-          COUNT(DISTINCT pu.purchase_id) AS total_orders,
-          SUM(pu.total_amount) AS lifetime_value
-   FROM Customer c
-   JOIN Purchase pu ON c.customer_id = pu.customer_id
-   GROUP BY c.customer_id, c.first_name, c.last_name
-   ORDER BY lifetime_value DESC
-   LIMIT 20;" \
-  "DROP INDEX idx_purchase_customer ON Purchase;" \
-  "CREATE INDEX idx_purchase_customer ON Purchase(customer_id);"
+  "DROP INDEX idx_purchase_cust_date ON Purchase;" \
+  "CREATE INDEX idx_purchase_cust_date ON Purchase(customer_id, purchase_date);"
 
 # 5) Store Performance Comparison
-run_explain_case \
+run_explain_case_ignore \
   "Store Performance Comparison" \
   "Compare sales metrics across stores" \
   "SELECT s.store_name,
@@ -235,27 +258,29 @@ run_explain_case \
           SUM(pu.total_amount) AS total_revenue,
           ROUND(AVG(pu.total_amount), 2) AS avg_order_value
    FROM Store s
-   LEFT JOIN Purchase pu ON s.store_id = pu.store_id
+   LEFT JOIN Purchase pu IGNORE INDEX (idx_purchase_store, idx_purchase_employee, idx_purchase_date, idx_purchase_cust_date, idx_purchase_customer)
+     ON s.store_id = pu.store_id
    GROUP BY s.store_id, s.store_name
    ORDER BY total_revenue DESC;" \
-  "DROP INDEX idx_purchase_store ON Purchase;" \
-  "CREATE INDEX idx_purchase_store ON Purchase(store_id);"
-
-# 6) Low Stock Items Report
-run_explain_case \
-  "Low Stock Items Report" \
-  "Items that need reordering" \
   "SELECT s.store_name,
-          p.name AS product_name,
-          i.quantity_available,
-          i.restock_threshold
-   FROM Inventory i
-   JOIN Store s ON i.store_id = s.store_id
-   JOIN Product p ON i.product_id = p.product_id
-   WHERE i.quantity_available <= i.restock_threshold
-   ORDER BY i.quantity_available ASC;" \
-  "DROP INDEX idx_inventory_low_stock ON Inventory;" \
-  "CREATE INDEX idx_inventory_low_stock ON Inventory(quantity_available);"
+          COUNT(DISTINCT pu.purchase_id) AS order_count,
+          SUM(pu.total_amount) AS total_revenue,
+          ROUND(AVG(pu.total_amount), 2) AS avg_order_value
+   FROM Store s
+   LEFT JOIN Purchase pu ON s.store_id = pu.store_id
+   GROUP BY s.store_id, s.store_name
+   ORDER BY total_revenue DESC;"
+
+# 6) Low Stock Alert for Specific Store
+run_explain_case \
+  "Low Stock Alert for Specific Store" \
+  "Find items running low at a particular store location" \
+  "SELECT store_id, product_id, quantity_available, current_price
+   FROM Inventory
+   WHERE store_id = 1 AND quantity_available < 10
+   ORDER BY quantity_available;" \
+  "DROP INDEX idx_inventory_range ON Inventory;" \
+  "CREATE INDEX idx_inventory_range ON Inventory(store_id, quantity_available);"
 
 # ==============================================================================
 # Index inventory for all existing tables (no hardcoded, no missing-table errors)
