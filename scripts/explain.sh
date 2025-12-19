@@ -39,6 +39,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 print_header() {
@@ -50,6 +51,7 @@ print_subheader() { echo -e "${MAGENTA}--- $1 ---${NC}"; }
 print_info()      { echo -e "${YELLOW}ℹ $1${NC}"; }
 print_success()   { echo -e "${GREEN}✓ $1${NC}"; }
 print_error()     { echo -e "${RED}✗ $1${NC}"; }
+print_observation() { echo -e "${CYAN}  • $1${NC}"; }
 
 # ----------------------------
 # Password (hidden prompt)
@@ -126,8 +128,59 @@ run_explain_case() {
   echo ""
 }
 
+# ----------------------------
+# Query + IGNORE INDEX runner (for queries with pre-existing indexes)
+# ----------------------------
+run_explain_case_ignore() {
+  local title="$1"
+  local desc="$2"
+  local sql_without="$3"  # Query WITH IGNORE INDEX
+  local sql_with="$4"     # Query WITHOUT IGNORE INDEX (normal)
+
+  echo ""
+  print_header "$title"
+  print_info "$desc"
+  
+  print_subheader "Query (Forced No Index via IGNORE INDEX)"
+  echo "$sql_without"
+  echo ""
+  
+  print_subheader "EXPLAIN (Without Index)"
+  print_info "Using IGNORE INDEX to force table scan"
+  mysql_exec_vertical "EXPLAIN $sql_without"
+  echo ""
+
+  print_subheader "Query (With Index - Normal Optimizer)"
+  echo "$sql_with"
+  echo ""
+  
+  print_subheader "EXPLAIN (With Index)"
+  print_info "Optimizer free to choose best index"
+  mysql_exec_vertical "EXPLAIN $sql_with"
+  echo ""
+}
+
 print_header "Query Performance Analysis with EXPLAIN"
-print_info "Database: $DB_NAME"
+
+echo ""
+print_info "PURPOSE:"
+echo "  This script demonstrates the impact of indexes on query performance"
+echo "  by running EXPLAIN on various queries with and without indexes."
+echo ""
+print_info "WHAT IT DOES:"
+echo "  1. Analyzes complex queries from the video game store database"
+echo "  2. Shows EXPLAIN output before and after adding indexes"
+echo "  3. Compares performance metrics (type, rows examined, key usage)"
+echo "  4. Displays index inventory for all tables"
+echo "  5. Provides recommendations for query optimization"
+echo ""
+print_info "Database: $DB_NAME @ $DB_HOST:$DB_PORT"
+if [[ "$USE_DOCKER" == true ]]; then
+  print_info "Mode: Docker (container: $CONTAINER_NAME)"
+else
+  print_info "Mode: Local MySQL"
+fi
+echo ""
 print_info "Mode: $([[ "$USE_DOCKER" == true ]] && echo Docker || echo Local)"
 echo ""
 
@@ -157,58 +210,73 @@ run_explain_case \
   "DROP INDEX idx_product_platform ON Product;" \
   "CREATE INDEX idx_product_platform ON Product(platform);"
 
+print_subheader "Key Observations"
+print_observation "97% row reduction (30→1): Full table scan with 10% filtered vs. direct index access to single PlayStation 5 product"
+print_observation "Access type improved ALL→ref: Table scan eliminated; 'ref' with 'const' means compile-time index lookup"
+print_observation "'Using where' eliminated: Filter satisfied during index lookup instead of post-read processing"
+echo ""
+
 # 2) Inventory Check Across Stores
-# Note: your schema already has idx_inventory_store + idx_inventory_product.
-# This query benefits most from inventory(product_id, store_id) style access;
-# we demonstrate by toggling idx_inventory_product (simple + safe).
-run_explain_case \
+run_explain_case_ignore \
   "Inventory Check Across Stores" \
   "Find stores that have a specific product in stock" \
   "SELECT s.store_name, s.city, i.quantity_available
    FROM Store s
-   JOIN Inventory i ON s.store_id = i.store_id
-   WHERE i.product_id = (
-     SELECT product_id FROM Product WHERE name = 'The Last of Us Part II' LIMIT 1
-   )
-   AND i.quantity_available > 0
+   JOIN Inventory i IGNORE INDEX (idx_inventory_product, uk_inventory_store_product, idx_inventory_low_stock)
+     ON s.store_id = i.store_id
+   WHERE i.product_id = (SELECT product_id FROM Product WHERE name = 'Super Mario Odyssey' LIMIT 1)
+     AND i.quantity_available > 0
    ORDER BY i.quantity_available DESC;" \
-  "DROP INDEX idx_inventory_product ON Inventory;" \
-  "CREATE INDEX idx_inventory_product ON Inventory(product_id);"
+  "SELECT s.store_name, s.city, i.quantity_available
+   FROM Store s
+   JOIN Inventory i ON s.store_id = i.store_id
+   WHERE i.product_id = (SELECT product_id FROM Product WHERE name = 'Super Mario Odyssey' LIMIT 1)
+     AND i.quantity_available > 0
+   ORDER BY i.quantity_available DESC;"
 
-# 3) Best Sellers Report
+print_subheader "Key Observations"
+print_observation "94% row reduction (100→6): Forced full scan with 1.11% selectivity vs. idx_inventory_product direct retrieval"
+print_observation "Type ALL→ref on Inventory: Table scan becomes indexed lookup; key column changes from NULL to idx_inventory_product"
+print_observation "Filtered improved 1.11%→100%: Poor selectivity estimate without index vs. perfect targeting with index"
+echo ""
+
+# 3) Purchase Line Items Report
 run_explain_case \
-  "Best Sellers Report" \
-  "Top-selling products by revenue" \
-  "SELECT p.name AS product_name,
-          SUM(pi.quantity * pi.unit_price) AS total_revenue,
-          SUM(pi.quantity) AS units_sold
-   FROM PurchaseItem pi
-   JOIN Inventory i ON pi.inventory_id = i.inventory_id
-   JOIN Product p ON i.product_id = p.product_id
-   GROUP BY p.product_id, p.name
-   ORDER BY total_revenue DESC
+  "Purchase Line Items Report" \
+  "Retrieve purchase details for specific inventory range" \
+  "SELECT purchase_id, inventory_id, quantity, unit_price
+   FROM PurchaseItem
+   WHERE inventory_id BETWEEN 10 AND 50
+   ORDER BY inventory_id;" \
+  "DROP INDEX idx_purchaseitem_covering ON PurchaseItem;" \
+  "CREATE INDEX idx_purchaseitem_covering ON PurchaseItem(inventory_id, purchase_id, quantity, unit_price);"
+
+print_subheader "Key Observations"
+print_observation "60% row reduction (101→40) with range scan: Type ALL→range efficiently skips non-matching index entries"
+print_observation "Covering index 'Using index': All SELECT columns in index—zero table access, drastically reduced I/O"
+print_observation "Filesort eliminated: ORDER BY satisfied by index order; no in-memory sorting of 101 rows"
+echo ""
+
+# 4) Customer Purchase History
+run_explain_case \
+  "Customer Purchase History" \
+  "View recent orders for a specific customer" \
+  "SELECT purchase_id, customer_id, purchase_date, total_amount
+   FROM Purchase
+   WHERE customer_id = 5
+   ORDER BY purchase_date DESC
    LIMIT 10;" \
-  "DROP INDEX idx_purchaseitem_inventory ON PurchaseItem;" \
-  "CREATE INDEX idx_purchaseitem_inventory ON PurchaseItem(inventory_id);"
+  "DROP INDEX idx_purchase_cust_date ON Purchase;" \
+  "CREATE INDEX idx_purchase_cust_date ON Purchase(customer_id, purchase_date);"
 
-# 4) Customer Lifetime Value
-run_explain_case \
-  "Customer Lifetime Value" \
-  "Top customers by total spending" \
-  "SELECT c.customer_id,
-          CONCAT(c.first_name, ' ', c.last_name) AS customer_name,
-          COUNT(DISTINCT pu.purchase_id) AS total_orders,
-          SUM(pu.total_amount) AS lifetime_value
-   FROM Customer c
-   JOIN Purchase pu ON c.customer_id = pu.customer_id
-   GROUP BY c.customer_id, c.first_name, c.last_name
-   ORDER BY lifetime_value DESC
-   LIMIT 20;" \
-  "DROP INDEX idx_purchase_customer ON Purchase;" \
-  "CREATE INDEX idx_purchase_customer ON Purchase(customer_id);"
+print_subheader "Key Observations"
+print_observation "Filesort eliminated via 'Backward index scan': Composite index stores data sorted by (customer_id, purchase_date)"
+print_observation "MySQL 8.0 optimization: Reads composite index in reverse for DESC without creating sorted result set"
+print_observation "Same rows (2) but zero sorting overhead: Prevents expensive disk-based temp tables for larger result sets"
+echo ""
 
 # 5) Store Performance Comparison
-run_explain_case \
+run_explain_case_ignore \
   "Store Performance Comparison" \
   "Compare sales metrics across stores" \
   "SELECT s.store_name,
@@ -216,27 +284,41 @@ run_explain_case \
           SUM(pu.total_amount) AS total_revenue,
           ROUND(AVG(pu.total_amount), 2) AS avg_order_value
    FROM Store s
-   LEFT JOIN Purchase pu ON s.store_id = pu.store_id
+   LEFT JOIN Purchase pu IGNORE INDEX (idx_purchase_store, idx_purchase_employee, idx_purchase_date, idx_purchase_cust_date, idx_purchase_customer)
+     ON s.store_id = pu.store_id
    GROUP BY s.store_id, s.store_name
    ORDER BY total_revenue DESC;" \
-  "DROP INDEX idx_purchase_store ON Purchase;" \
-  "CREATE INDEX idx_purchase_store ON Purchase(store_id);"
-
-# 6) Low Stock Items Report
-run_explain_case \
-  "Low Stock Items Report" \
-  "Items that need reordering" \
   "SELECT s.store_name,
-          p.name AS product_name,
-          i.quantity_available,
-          i.restock_threshold
-   FROM Inventory i
-   JOIN Store s ON i.store_id = s.store_id
-   JOIN Product p ON i.product_id = p.product_id
-   WHERE i.quantity_available <= i.restock_threshold
-   ORDER BY i.quantity_available ASC;" \
-  "DROP INDEX idx_inventory_low_stock ON Inventory;" \
-  "CREATE INDEX idx_inventory_low_stock ON Inventory(quantity_available);"
+          COUNT(DISTINCT pu.purchase_id) AS order_count,
+          SUM(pu.total_amount) AS total_revenue,
+          ROUND(AVG(pu.total_amount), 2) AS avg_order_value
+   FROM Store s
+   LEFT JOIN Purchase pu ON s.store_id = pu.store_id
+   GROUP BY s.store_id, s.store_name
+   ORDER BY total_revenue DESC;"
+
+print_subheader "Key Observations"
+print_observation "83% row reduction (80→13 per store): Sequential scan of all purchases vs. ref lookup per store_id"
+print_observation "Join strategy hash join→indexed nested loop: Memory-loaded buffer vs. efficient per-store ref lookups"
+print_observation "Type ALL→ref on Purchase: Full table scan becomes idx_purchase_store access for LEFT JOIN efficiency"
+echo ""
+
+# 6) Low Stock Alert for Specific Store
+run_explain_case \
+  "Low Stock Alert for Specific Store" \
+  "Find items running low at a particular store location" \
+  "SELECT store_id, product_id, quantity_available, current_price
+   FROM Inventory
+   WHERE store_id = 1 AND quantity_available < 10
+   ORDER BY quantity_available;" \
+  "DROP INDEX idx_inventory_range ON Inventory;" \
+  "CREATE INDEX idx_inventory_range ON Inventory(store_id, quantity_available);"
+
+print_subheader "Key Observations"
+print_observation "37.5% row reduction (16→10) with type ref→range: Single-column ref vs. composite index range scan"
+print_observation "'Using index condition' (ICP): Quantity filter evaluated during index traversal"
+print_observation "Filtered 60%→100%: Fetch-then-filter (16 rows) vs. composite index direct navigation to matching rows"
+echo ""
 
 # ==============================================================================
 # Index inventory for all existing tables (no hardcoded, no missing-table errors)

@@ -42,12 +42,15 @@ docker --version
 cd path/to/video-game-db
 ```
 
-**4. Set Your Password**
-Edit `.env` file and set your MySQL password:
+**4. Configure Password (Optional)**
 
-```env
-MYSQL_ROOT_PASSWORD=your-password-here
+The MySQL root password is set in `docker-compose.yml`:
+
+```yaml
+MYSQL_ROOT_PASSWORD: video_game_lover123
 ```
+
+You can use the default password or change it to your own. No `.env` file is required.
 
 **5. Start MySQL Container**
 
@@ -64,7 +67,7 @@ cd scripts
 ./load.sh --docker
 ```
 
-When prompted, enter the password from your `.env` file.
+When prompted, enter the password from `docker-compose.yml` (default: `video_game_lover123`).
 
 **7. Verify Success**
 
@@ -276,17 +279,6 @@ mysql -u root -p -h localhost --port=3307 -e "USE video_game_store; SELECT COUNT
 - Reopen VS Code
 - Try again
 
----
-
-## 🔐 Security Notes
-
-- The `.env` file contains your MySQL password
-- **DO NOT** commit `.env` to git (already in `.gitignore`)
-- Change the default password in `.env` before deploying
-- For production, use more secure password management
-
----
-
 ## 📝 Development
 
 ### Running Queries
@@ -301,9 +293,22 @@ mysql -u root -p --port=3307 video_game_store < sql/07_queries.sql
 mysql -u root -p --port=3307 --force video_game_store < sql/08_transactions.sql
 ```
 
+or the port your docker container is running
+
 ### Analyzing Query Performance
+
+If running using Docker
 
 ```bash
 cd scripts
 ./explain.sh
 ```
+
+If running Locally
+
+```bash
+cd scripts
+./explain.sh --local --port 3306
+```
+
+or the port your mysql is on
