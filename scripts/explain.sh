@@ -222,7 +222,7 @@ run_explain_case_ignore \
   "Find stores that have a specific product in stock" \
   "SELECT s.store_name, s.city, i.quantity_available
    FROM Store s
-   JOIN Inventory i IGNORE INDEX (idx_inventory_product, uk_inventory_store_product, idx_inventory_low_stock, idx_inventory_range)
+   JOIN Inventory i IGNORE INDEX (idx_inventory_product, uk_inventory_store_product, idx_inventory_low_stock)
      ON s.store_id = i.store_id
    WHERE i.product_id = (SELECT product_id FROM Product WHERE name = 'Super Mario Odyssey' LIMIT 1)
      AND i.quantity_available > 0

@@ -42,12 +42,15 @@ docker --version
 cd path/to/video-game-db
 ```
 
-**4. Set Your Password**
-Edit `.env` file and set your MySQL password:
+**4. Configure Password (Optional)**
 
-```env
-MYSQL_ROOT_PASSWORD=your-password-here
+The MySQL root password is set in `docker-compose.yml`:
+
+```yaml
+MYSQL_ROOT_PASSWORD: video_game_lover123
 ```
+
+You can use the default password or change it to your own. No `.env` file is required.
 
 **5. Start MySQL Container**
 
@@ -64,7 +67,7 @@ cd scripts
 ./load.sh --docker
 ```
 
-When prompted, enter the password from your `.env` file.
+When prompted, enter the password from `docker-compose.yml` (default: `video_game_lover123`).
 
 **7. Verify Success**
 
