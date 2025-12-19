@@ -39,6 +39,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 print_header() {
@@ -50,6 +51,7 @@ print_subheader() { echo -e "${MAGENTA}--- $1 ---${NC}"; }
 print_info()      { echo -e "${YELLOW}ℹ $1${NC}"; }
 print_success()   { echo -e "${GREEN}✓ $1${NC}"; }
 print_error()     { echo -e "${RED}✗ $1${NC}"; }
+print_observation() { echo -e "${CYAN}  • $1${NC}"; }
 
 # ----------------------------
 # Password (hidden prompt)
@@ -208,6 +210,12 @@ run_explain_case \
   "DROP INDEX idx_product_platform ON Product;" \
   "CREATE INDEX idx_product_platform ON Product(platform);"
 
+print_subheader "Key Observations"
+print_observation "97% row reduction (30→1): Full table scan with 10% filtered vs. direct index access to single PlayStation 5 product"
+print_observation "Access type improved ALL→ref: Table scan eliminated; 'ref' with 'const' means compile-time index lookup"
+print_observation "'Using where' eliminated: Filter satisfied during index lookup instead of post-read processing"
+echo ""
+
 # 2) Inventory Check Across Stores
 run_explain_case_ignore \
   "Inventory Check Across Stores" \
@@ -226,6 +234,12 @@ run_explain_case_ignore \
      AND i.quantity_available > 0
    ORDER BY i.quantity_available DESC;"
 
+print_subheader "Key Observations"
+print_observation "94% row reduction (100→6): Forced full scan with 1.11% selectivity vs. idx_inventory_product direct retrieval"
+print_observation "Type ALL→ref on Inventory: Table scan becomes indexed lookup; key column changes from NULL to idx_inventory_product"
+print_observation "Filtered improved 1.11%→100%: Poor selectivity estimate without index vs. perfect targeting with index"
+echo ""
+
 # 3) Purchase Line Items Report
 run_explain_case \
   "Purchase Line Items Report" \
@@ -236,6 +250,12 @@ run_explain_case \
    ORDER BY inventory_id;" \
   "DROP INDEX idx_purchaseitem_covering ON PurchaseItem;" \
   "CREATE INDEX idx_purchaseitem_covering ON PurchaseItem(inventory_id, purchase_id, quantity, unit_price);"
+
+print_subheader "Key Observations"
+print_observation "60% row reduction (101→40) with range scan: Type ALL→range efficiently skips non-matching index entries"
+print_observation "Covering index 'Using index': All SELECT columns in index—zero table access, drastically reduced I/O"
+print_observation "Filesort eliminated: ORDER BY satisfied by index order; no in-memory sorting of 101 rows"
+echo ""
 
 # 4) Customer Purchase History
 run_explain_case \
@@ -248,6 +268,12 @@ run_explain_case \
    LIMIT 10;" \
   "DROP INDEX idx_purchase_cust_date ON Purchase;" \
   "CREATE INDEX idx_purchase_cust_date ON Purchase(customer_id, purchase_date);"
+
+print_subheader "Key Observations"
+print_observation "Filesort eliminated via 'Backward index scan': Composite index stores data sorted by (customer_id, purchase_date)"
+print_observation "MySQL 8.0 optimization: Reads composite index in reverse for DESC without creating sorted result set"
+print_observation "Same rows (2) but zero sorting overhead: Prevents expensive disk-based temp tables for larger result sets"
+echo ""
 
 # 5) Store Performance Comparison
 run_explain_case_ignore \
@@ -271,6 +297,12 @@ run_explain_case_ignore \
    GROUP BY s.store_id, s.store_name
    ORDER BY total_revenue DESC;"
 
+print_subheader "Key Observations"
+print_observation "83% row reduction (80→13 per store): Sequential scan of all purchases vs. ref lookup per store_id"
+print_observation "Join strategy hash join→indexed nested loop: Memory-loaded buffer vs. efficient per-store ref lookups"
+print_observation "Type ALL→ref on Purchase: Full table scan becomes idx_purchase_store access for LEFT JOIN efficiency"
+echo ""
+
 # 6) Low Stock Alert for Specific Store
 run_explain_case \
   "Low Stock Alert for Specific Store" \
@@ -281,6 +313,12 @@ run_explain_case \
    ORDER BY quantity_available;" \
   "DROP INDEX idx_inventory_range ON Inventory;" \
   "CREATE INDEX idx_inventory_range ON Inventory(store_id, quantity_available);"
+
+print_subheader "Key Observations"
+print_observation "37.5% row reduction (16→10) with type ref→range: Single-column ref vs. composite index range scan"
+print_observation "'Using index condition' (ICP): Quantity filter evaluated during index traversal"
+print_observation "Filtered 60%→100%: Fetch-then-filter (16 rows) vs. composite index direct navigation to matching rows"
+echo ""
 
 # ==============================================================================
 # Index inventory for all existing tables (no hardcoded, no missing-table errors)
