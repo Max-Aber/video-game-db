@@ -279,17 +279,6 @@ mysql -u root -p -h localhost --port=3307 -e "USE video_game_store; SELECT COUNT
 - Reopen VS Code
 - Try again
 
----
-
-## 🔐 Security Notes
-
-- The `.env` file contains your MySQL password
-- **DO NOT** commit `.env` to git (already in `.gitignore`)
-- Change the default password in `.env` before deploying
-- For production, use more secure password management
-
----
-
 ## 📝 Development
 
 ### Running Queries
@@ -304,9 +293,22 @@ mysql -u root -p --port=3307 video_game_store < sql/07_queries.sql
 mysql -u root -p --port=3307 --force video_game_store < sql/08_transactions.sql
 ```
 
+or the port your docker container is running
+
 ### Analyzing Query Performance
+
+If running using Docker
 
 ```bash
 cd scripts
 ./explain.sh
 ```
+
+If running Locally
+
+```bash
+cd scripts
+./explain.sh --local --port 3306
+```
+
+or the port your mysql is on
